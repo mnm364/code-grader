@@ -98,12 +98,12 @@ class StreamTester(Tester):
 
 	def run(self):
 
-				# search for filename match w/in directory, and collect info
+		# search for filename match w/in directory, and collect info
 		for label, name in StreamTester._FILES.items():
 			for lang, ext in StreamTester.LANGS.items():
 				filename = Tester.find_files(name + '.' + ext)
 				if filename.find('/') != -1:
-					self.score.adjust(-1.5, reason='wrong filename or directory format [' + filename + ']')
+					self.score.adjust(-0.5, reason='wrong filename or directory format [' + filename + ']')
 				if Path(filename).is_file():
 					self.files[label] = filename
 					self.lang = lang + ' '
@@ -113,7 +113,7 @@ class StreamTester(Tester):
 		for fn in self.files.values():
 			with open(fn, 'r') as f:
 				if not re.search(r'#!', f.readline()):
-					self.score.adjust(-0.5, reason='Yo missing the SHEBANG!!!')
+					self.score.adjust(-0.5, reason='missing the shebang in ' + fn)
 					continue
 
 			self.lang = './'
@@ -121,37 +121,40 @@ class StreamTester(Tester):
 			# set runnable permission
 			subprocess.Popen(['chmod', '755', fn])
 
-		mapper = self.lang + self.files.get('mapper', 'mapper.py')
-		reducer = self.lang + self.files.get('reducer', 'reducer.py')
+		mapper = self.lang + self.files.get('mapper', 'python mapper.py')
+		reducer = self.lang + self.files.get('reducer', 'python reducer.py')
 		cmd = 'cat ' + self.data + ' | ' + mapper + ' | sort | ' + reducer + ' | sort'
 		print(cmd)
-		student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
-		cleaned = '\n'.join(map(lambda x: x.strip(), student_solution.replace('\t', ' ').splitlines()))
-
-		if student_solution != cleaned:
-			self.score.adjust(-1, reason='invalid output format for map/reduce')
-			student_solution = cleaned
-
-		triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
-
 		try:
-			with open('simple.out', 'r') as solution:
-				diff = unified_diff(
-					triple_sort(student_solution),
-					triple_sort(solution.read()),
-					tofile='solution'
-				)
+			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
+			cleaned = '\n'.join(map(lambda x: x.strip(), student_solution.replace('\t', ' ').splitlines()))
 
-			diff = list(diff)
-			if len(diff) != 0:
-				self.score.adjust(-7, reason='Failed diff: ' + '\n'.join(line for line in diff))
+			if student_solution != cleaned:
+				self.score.adjust(-1, reason='invalid output format for map/reduce')
+				student_solution = cleaned
 
-		except IOError:
-			sys.stderr.write('GRADER ERROR: make sure bucket6 is in grading directory!\n')
-		
-		except:
-			self.score.adjust(-7, reason='unknonwn but fatal failure; output format may be wrong.\n' + student_solution)
+			triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
 
+			try:
+				with open('simple.out', 'r') as solution:
+					diff = unified_diff(
+						triple_sort(student_solution),
+						triple_sort(solution.read()),
+						tofile='solution'
+					)
+
+				diff = list(diff)
+				if len(diff) != 0:
+					self.score.adjust(-5, reason='Failed diff: ' + '\n'.join(line for line in diff))
+
+			except IOError:
+				sys.stderr.write('GRADER ERROR: make sure bucket6 is in grading directory!\n')
+			except ValueError:
+				self.score.adjust(-5, reason='output format may be wrong (consider submitting regrade request!).\nYour solution:\n' + student_solution)
+			except:
+				self.score.adjust(-5, reason='unknown but fatal failure (consider submitting regrade request!).\n' + str(sys.exc_info()[0]) + '\n' + student_solution)
+		except subprocess.CalledProcessError as e:
+			self.score.adjust(-3, reason='issue with command (consider regrade request!):\n' + str(e.output) + '\n' + cmd)
 
 		return {
 			'score': self.score.score,
@@ -173,7 +176,7 @@ class BucketTest(Tester):
 
 		# enforce good format
 		if bucket != 'bucket.txt':
-			self.score.adjust(-2, reason='bad bucket.txt format [' + bucket + ']')
+			self.score.adjust(-0.5, reason='bad bucket.txt format [' + bucket + ']')
 
 		try:
 			with open(bucket) as f:
@@ -181,21 +184,21 @@ class BucketTest(Tester):
 				if url is None:
 					print('GSUTIL USED')
 					url = re.search(r'(gs://\S*fof\.output)', f.read()).group(1) + '/'
-					self.score.adjust(5, reason='workaround for gsutil in grading script, it works. Awesome job!')
+					self.score.adjust(7, reason='workaround for gsutil in grading script, it works. Awesome job!')
 				if url is not None:
-					self.score.adjust(5, reason='valid url in bucket.txt file')
+					self.score.adjust(7, reason='valid url in bucket.txt file')
 		except:
 			self.score.adjust(-5, reason='no bucket.txt file!')
 
 		ext = 'part-r-00006'
-		cmd = ' '.join(['curl', url + ext])
+		cmd = ' '.join(['curl -s -S', url + ext])
 		print('\n' + cmd)
 		try:
 			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
 
 			# check for valid bucket
-			if len(student_solution) > 10:
-				self.score.adjust(15, reason='valid bucket')
+			if len(student_solution) > 0:
+				self.score.adjust(9, reason='valid bucket')
 
 			triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
 
@@ -217,13 +220,17 @@ class BucketTest(Tester):
 						break
 
 					if not correct:
-						self.score.adjust(-5, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
+						self.score.adjust(-3, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
 
 			except IOError:
-				sys.stderr.write('GRADER ERROR: make sure bucket6 is in grading directory!\n')
+				sys.stderr.write('GRADER ERROR: make sure bucket6 file is in grading directory!\n')
+			except ValueError:
+				self.score.adjust(-0.5, reason='output format may be wrong (consider submitting regrade request!)')
 
+		except subprocess.CalledProcessError as e:
+			self.score.adjust(-5, reason='issue with curl command, did you make your bucket public? (consider regrade request!):\n' + cmd + '\n ' + str(e.output))
 		except:
-			self.score.adjust(-5, reason='unkown failure; maybe issue with command:\n' + cmd)
+			self.score.adjust(0, reason='unkown failure')
 
 		return {
 			'score': self.score.score,
