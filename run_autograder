@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+mkdir -p autograder/source
+cp -r /autograder/submission/* /autograder/source/
+
+cd /autograder/source
+
+curl https://storage.googleapis.com/jhu-parallel-michael/fof.output/part-r-00006 > bucket6
+
+python3.5 grade.py 
+
+cat out.json > /autograder/results/results.json
