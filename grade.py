@@ -48,6 +48,7 @@ class Tester(metaclass=ABCMeta):
 	def __init__(self, name='test--', max_score='0', note=''):
 		self.name = name
 		self.score = ScoreBoard((0, max_score))
+		self.score.adjust(max_score, reason='Initializing at max pts.')
 		self.note = note
 
 	@abstractmethod
@@ -180,10 +181,10 @@ class BucketTest(Tester):
 
 		try:
 			with open(bucket) as f:
-				url = re.search(r'(https://\S*fof\.output)', f.read()).group(1) + '/'
+				url = re.search(r'(https://\S*[fF]o[fF]\.output)', f.read()).group(1) + '/'
 				if url is None:
 					print('GSUTIL USED')
-					url = re.search(r'(gs://\S*fof\.output)', f.read()).group(1) + '/'
+					url = re.search(r'(gs://\S*[fF]o[fF]\.output)', f.read()).group(1) + '/'
 					self.score.adjust(7, reason='workaround for gsutil in grading script, it works. Awesome job!')
 				if url is not None:
 					self.score.adjust(7, reason='valid url in bucket.txt file')
