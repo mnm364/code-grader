@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.5
+
 import json, os, re, sys
 from difflib import unified_diff
 import subprocess
@@ -6,31 +8,46 @@ from abc import ABCMeta, abstractmethod
 from pathlib import Path
 import glob
 
+
 class ScoreBoard:
-	def __init__(self, bounds, strict=(True, True)):
-		self.min_score = bounds(0)
-		self.max_score = bounds(1)
-		self.bounds = bounds
+	def __init__(self, bound, strict=(True, True), name=''):
+		self.bound = bound
 		self.strict = strict
 		self.score = 0
+		self.explanation = ''
+		self.name = name
 
-	def adjust(self, value, reason='', comment=''):
+	def adjust(self, value, reason='', comment=None):
 		self.score += value
+		if self.score < self.bound[0]:
+			print('scoreboard: ' + self.name + ' underflow ' + str(self.bound[0]) + '#' + str(self.score) + '; reason: ' + reason)
+			if self.strict[0]:
+				self.score = max(self.score, self.bound[0])
+		if self.score > self.bound[1]:
+			print('scoreboard: ' + self.name + ' overflow ' + str(self.bound[0]) + '#' + str(self.score) + '; reason: ' + reason)
+			if self.strict[1]:
+				self.score = min(self.score, self.bound[1])
+		self.explanation += '\n(' + '{:+.2f}'.format(value) + ') ' + reason
+		if comment:
+			self.explanation += '\ncomment: ' + comment
+
+	def dump(self):
+		return {
+			'score': self.score,
+			'output': self.name + '\n' + self.explanation
+		}
+
 
 class Student:
-
 	def __init__(self, name='Mappy Redusir', max_score='0'):
 		self.name = name
 		self.score_board = ScoreBoard(max_score)
 
 
-
 class Tester(metaclass=ABCMeta):
-
-	def __init__(self, name='test?', max_score='0', note=''):
+	def __init__(self, name='test--', max_score='0', note=''):
 		self.name = name
-		self.score = 0
-		self.max_score = max_score
+		self.score = ScoreBoard((0, max_score))
 		self.note = note
 
 	@abstractmethod
@@ -43,25 +60,19 @@ class Tester(metaclass=ABCMeta):
 		for f in glob.iglob('./**/' + filename, recursive=True):
 			found = f
 			break
+
 		if len(found) > 0:
 			found = found[2:]
-		bad = 1 if found != filename else 0
 
 		# crazy stuff to try to find it
-		if len(found) == 0 and others:
-			for other in others:
-				for f in glob.iglob('./**/' + other, recursive=True):
-					found = f
-					break
+		# if len(found) == 0 and others:
+		# 	for other in others:
+		# 		for f in glob.iglob('./**/' + other, recursive=True):
+		# 			found = f
+		# 			break
 
-		return found, bad
+		return found
 
-# TODO
-class DirectoryTester(Tester):
-	def __init__(self, **kwargs):
-		super().__init__(kwargs)
-
-	def run(self): pass
 
 class StreamTester(Tester):
 
@@ -80,34 +91,29 @@ class StreamTester(Tester):
 		super().__init__(**kwargs)
 		self.files = {}
 		self.data = 'simple.input/*'
-		self.score = 0
 		self.output = 'Script stream tester'
-		self.badformat = 0
+		self.lang = ''
+		self.extension = ''
+		self.score.adjust(self.score.bound[1])
 
 	def run(self):
 
-		# TODO - check if langs and exts match
-
-		self.lang = ''
-		self.extension = ''
-
-		# search for filename match w/in directory, and collect info
+				# search for filename match w/in directory, and collect info
 		for label, name in StreamTester._FILES.items():
 			for lang, ext in StreamTester.LANGS.items():
-				filename = name + '.' + ext
-				filename, bad = Tester.find_files(filename)
+				filename = Tester.find_files(name + '.' + ext)
+				if filename.find('/') != -1:
+					self.score.adjust(-1.5, reason='wrong filename or directory format [' + filename + ']')
 				if Path(filename).is_file():
-					self.badformat += 1.5*bad
 					self.files[label] = filename
 					self.lang = lang + ' '
 					break
 
-		use_shebang = True
-		# verify that shebang is present
+		# run with shebang if present
 		for fn in self.files.values():
 			with open(fn, 'r') as f:
 				if not re.search(r'#!', f.readline()):
-					use_shebang = False
+					self.score.adjust(-0.5, reason='Yo missing the SHEBANG!!!')
 					continue
 
 			self.lang = './'
@@ -115,119 +121,124 @@ class StreamTester(Tester):
 			# set runnable permission
 			subprocess.Popen(['chmod', '755', fn])
 
-		# DEBUG
-		print(self.lang)
-		print(self.files)
-		# END DEBUG
-
-		mapper = self.lang + self.files['mapper']
-		reducer = self.lang + self.files['reducer']
-		cmd = 'cat ' + self.data + ' | ' + mapper + ' | sort | ' + reducer + ' | sort' #  > ./student.simple.out
+		mapper = self.lang + self.files.get('mapper', 'mapper.py')
+		reducer = self.lang + self.files.get('reducer', 'reducer.py')
+		cmd = 'cat ' + self.data + ' | ' + mapper + ' | sort | ' + reducer + ' | sort'
 		print(cmd)
 		student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
 		cleaned = '\n'.join(map(lambda x: x.strip(), student_solution.replace('\t', ' ').splitlines()))
 
 		if student_solution != cleaned:
-			self.score -= 2
-			self.output += '\n(-2) invalid output format for map/reduce (eeek this might screw up the big boy test...)'
+			self.score.adjust(-1, reason='invalid output format for map/reduce')
 			student_solution = cleaned
 
 		triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
 
-		# with open('student.simple.out', 'r') as output:
-		with open('simple.out', 'r') as solution:
-			diff = unified_diff(
-				triple_sort(student_solution),
-				triple_sort(solution.read()),
-				tofile='solution'
-			)
-
-		diff = list(diff)
-		if len(diff) == 0:
-			self.score += 10
-
-		self.output += '\nDiff:\n'
-		for line in diff:
-			self.output += line + '\n'
-
-		self.score -= self.badformat
-		self.output += '\nformat: -' + str(self.badformat)
-
-		if not use_shebang:
-			self.score -= 2
-			self.output += '\nYo missing the SHEBANG!!!'
-
-		return {
-			'score': self.score,
-			'max_score': self.max_score,
-			'output': self.output
-		}
-
-class BucketTest(Tester):
-	def __init__(self, **kwargs):
-		kwargs['name'] = 'bucket tester'
-		super().__init__(**kwargs)
-		self.score = 0
-		self.output = 'Bucket Tester'
-		self.badformat = 0
-
-	def run(self):
-
-		url = ''
-		bucket, stat = Tester.find_files('bucket.txt')
 		try:
-			with open(bucket) as f:
-				url = re.search(r'(https://\S*fof\.output)', f.read()).group(1) + '/'
-		except:
-			self.output += '\nno bucket.txt file'
-			self.badformat += 10
-
-		ext = 'part-r-00006'
-		cmd = ' '.join(['curl', url + ext])
-		print(cmd)
-		student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
-
-		# check for valid bucket
-		if len(student_solution) > 10:
-			self.score += 15
-
-		# enforce good format
-		if bucket == 'bucket.txt':
-			self.score += 2
-			self.output += '\ngood: bucket.txt format good'
-
-		self.score = max(self.score - self.badformat, 0)
-
-		triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
-
-		try:
-			with open('bucket6', 'r') as solution:
+			with open('simple.out', 'r') as solution:
 				diff = unified_diff(
 					triple_sort(student_solution),
 					triple_sort(solution.read()),
 					tofile='solution'
 				)
 
-				correct = True
-				for line in zip(diff, range(20)):
-					correct = False
-					self.output += '\n' + line
-				for line in diff:
-					correct = False
-
-				if not correct:
-					self.output += '\nincorrect output for large file diff! \
-						\nnote: diff only shows for first 20 lines of diff'
-					self.score -= 5
+			diff = list(diff)
+			if len(diff) != 0:
+				self.score.adjust(-7, reason='Failed diff: ' + '\n'.join(line for line in diff))
 
 		except IOError:
 			sys.stderr.write('GRADER ERROR: make sure bucket6 is in grading directory!\n')
+		
+		except:
+			self.score.adjust(-7, reason='unknonwn but fatal failure; output format may be wrong.\n' + student_solution)
+
 
 		return {
-			'score': self.score,
-			'max_score': self.max_score,
-			'output': self.output
+			'score': self.score.score,
+			'max_score': self.score.bound[1],
+			'output': self.output + '\n' + self.score.explanation
 		}
+
+
+class BucketTest(Tester):
+	def __init__(self, **kwargs):
+		kwargs['name'] = 'bucket tester'
+		super().__init__(**kwargs)
+		self.output = 'Bucket Tester'
+
+	def run(self):
+
+		url = ''
+		bucket = Tester.find_files('bucket.txt')
+
+		# enforce good format
+		if bucket != 'bucket.txt':
+			self.score.adjust(-2, reason='bad bucket.txt format [' + bucket + ']')
+
+		try:
+			with open(bucket) as f:
+				url = re.search(r'(https://\S*fof\.output)', f.read()).group(1) + '/'
+				if url is None:
+					print('GSUTIL USED')
+					url = re.search(r'(gs://\S*fof\.output)', f.read()).group(1) + '/'
+					self.score.adjust(5, reason='workaround for gsutil in grading script, it works. Awesome job!')
+				if url is not None:
+					self.score.adjust(5, reason='valid url in bucket.txt file')
+		except:
+			self.score.adjust(-5, reason='no bucket.txt file!')
+
+		ext = 'part-r-00006'
+		cmd = ' '.join(['curl', url + ext])
+		print('\n' + cmd)
+		try:
+			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
+
+			# check for valid bucket
+			if len(student_solution) > 10:
+				self.score.adjust(15, reason='valid bucket')
+
+			triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
+
+			try:
+				with open('bucket6', 'r') as solution:
+					diff = unified_diff(
+						triple_sort(student_solution),
+						triple_sort(solution.read()),
+						tofile='solution'
+					)
+
+					diffstr = ''
+					correct = True
+					for line, i in zip(diff, range(20)):
+						correct = False
+						diffstr += '\n' + line
+					for line in diff:
+						correct = False
+						break
+
+					if not correct:
+						self.score.adjust(-5, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
+
+			except IOError:
+				sys.stderr.write('GRADER ERROR: make sure bucket6 is in grading directory!\n')
+
+		except:
+			self.score.adjust(-5, reason='unkown failure; maybe issue with command:\n' + cmd)
+
+		return {
+			'score': self.score.score,
+			'max_score': self.score.bound[1],
+			'output': self.output + '\n' + self.score.explanation
+		}
+
+
+# TODO
+class DirectoryTester(Tester):
+	def __init__(self, **kwargs):
+		super().__init__(kwargs)
+
+	def run(self): pass
+
 
 def main():
 	tests = [
@@ -240,7 +251,7 @@ def main():
 		'tests': [test.run() for test in tests]
 	}
 
-	print (res)
+	print(res)
 
 	with open('out.json', 'w') as jout:
 		jout.write(json.dumps(res))
