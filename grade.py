@@ -253,7 +253,7 @@ class BucketTest(Tester):
 						print('Lexographically ordered')
 
 				if not correct:
-					self.score.adjust(-5, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
+					self.score.adjust(-5, reason='failed diff for gcloud hadoop output (' + ext + ') - showing only first 20 diffs:' + diffstr)
 
 			except IOError:
 				sys.stderr.write('GRADER ERROR: make sure bucket6 and bucket6_lex files are in grading directory!\n')
