@@ -196,12 +196,7 @@ class BucketTest(Tester):
 			ext = 'part-r-00006' # part-00006
 			cmd = ' '.join(['curl -s -S', url + ext])
 			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
-
-			# throw error on invalid url extension (part-r-00006 or part-00006)
-			try:
-				firstline = student_solution.splitlines()[0]
-				dummy = [int(x) for x in firstline.split()]
-			except ValueError:
+			if student_solution[:5] == '<?xml':
 				ext = 'part-00006' # part-00006
 				cmd = ' '.join(['curl -s -S', url + ext])
 				student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
