@@ -192,11 +192,22 @@ class BucketTest(Tester):
 		except:
 			self.score.adjust(-5, reason='no bucket.txt file!')
 
-		ext = 'part-r-00006'
-		cmd = ' '.join(['curl -s -S', url + ext])
-		print('\n' + cmd)
 		try:
+			ext = 'part-r-00006' # part-00006
+			cmd = ' '.join(['curl -s -S', url + ext])
 			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
+
+			# throw error on invalid url extension (part-r-00006 or part-00006)
+			try:
+				firstline = student_solution.splitlines()[0]
+				dummy = [int(x) for x in firstline.split()]
+			except ValueError:
+				ext = 'part-00006' # part-00006
+				cmd = ' '.join(['curl -s -S', url + ext])
+				student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
+
+			print('\n' + cmd)
+
 			# print(student_solution)
 
 			# check for valid bucket
@@ -219,6 +230,8 @@ class BucketTest(Tester):
 				for line in diff:
 					correct = False
 					break
+				if correct:
+					print('Integer ordered')
 
 				if not correct:
 					with open('bucket6_lex', 'r') as solution:
@@ -236,6 +249,8 @@ class BucketTest(Tester):
 					for line in diff:
 						correct = False
 						break
+					if correct:
+						print('Lexographically ordered')
 
 				if not correct:
 					self.score.adjust(-5, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
