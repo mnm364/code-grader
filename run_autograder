@@ -4,6 +4,10 @@ mkdir -p autograder/source
 cp -r /autograder/submission/* /autograder/source/
 cd /autograder/source
 
-curl -s -S https://storage.googleapis.com/jhu-parallel-michael/fof.output/part-r-00006 > bucket6
+# for i in 00000 00001 00002 00003 00004 00005 00006 00007 00008 00009 00010 00011
+# do
+# 	curl -s -S https://storage.googleapis.com/jhu-parallel-michael/fof.output/part-r-"${i}" >> hadoop_solution
+# done
+
 python3.5 grade.py 
 cat out.json > /autograder/results/results.json

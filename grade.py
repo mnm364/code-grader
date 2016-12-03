@@ -74,6 +74,10 @@ class Tester(metaclass=ABCMeta):
 
 		return found
 
+	@staticmethod
+	def triple_sort(f):
+		return sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
+
 
 class StreamTester(Tester):
 
@@ -95,7 +99,6 @@ class StreamTester(Tester):
 		self.output = 'Script stream tester'
 		self.lang = ''
 		self.extension = ''
-		self.score.adjust(self.score.bound[1])
 
 	def run(self):
 
@@ -134,13 +137,11 @@ class StreamTester(Tester):
 				self.score.adjust(-1, reason='invalid output format for map/reduce')
 				student_solution = cleaned
 
-			triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
-
 			try:
 				with open('simple.out', 'r') as solution:
 					diff = unified_diff(
-						triple_sort(student_solution),
-						triple_sort(solution.read()),
+						Tester.triple_sort(student_solution),
+						Tester.triple_sort(solution.read()),
 						tofile='solution'
 					)
 
@@ -184,10 +185,10 @@ class BucketTest(Tester):
 				url = re.search(r'(https://\S*[fF]o[fF]\.output)', f.read()).group(1) + '/'
 				if url is None:
 					print('GSUTIL USED')
-					url = re.search(r'(gs://\S*[fF]o[fF]\.output)', f.read()).group(1) + '/'
-					self.score.adjust(7, reason='workaround for gsutil in grading script, it works. Awesome job!')
+					url = re.search(r'(gs://\S*[fF]o[fF]\.output)/part?', f.read()).group(1) + '/'
+					self.score.adjust(0, reason='workaround for gsutil in grading script, it works. Awesome job!')
 				if url is not None:
-					self.score.adjust(7, reason='valid url in bucket.txt file')
+					self.score.adjust(0, reason='valid url in bucket.txt file')
 		except:
 			self.score.adjust(-5, reason='no bucket.txt file!')
 
@@ -196,21 +197,37 @@ class BucketTest(Tester):
 		print('\n' + cmd)
 		try:
 			student_solution = subprocess.check_output(cmd, shell=True).decode('utf-8')
+			# print(student_solution)
 
 			# check for valid bucket
 			if len(student_solution) > 0:
-				self.score.adjust(9, reason='valid bucket')
-
-			triple_sort = lambda f: sorted(f.splitlines(), key=lambda x: [int(i) for i in x.split()])
+				self.score.adjust(0, reason='valid bucket in bucket file')
 
 			try:
 				with open('bucket6', 'r') as solution:
 					diff = unified_diff(
-						triple_sort(student_solution),
-						triple_sort(solution.read()),
-						tofile='solution'
+						Tester.triple_sort(student_solution),
+						Tester.triple_sort(solution.read()),
+						tofile='solution',
+						fromfile='student output'
 					)
+				diffstr = ''
+				correct = True
+				for line, i in zip(diff, range(20)):
+					correct = False
+					diffstr += '\n' + line
+				for line in diff:
+					correct = False
+					break
 
+				if not correct:
+					with open('bucket6_lex', 'r') as solution:
+						diff = unified_diff(
+							Tester.triple_sort(student_solution),
+							Tester.triple_sort(solution.read()),
+							tofile='solution',
+							fromfile='student output'
+						)
 					diffstr = ''
 					correct = True
 					for line, i in zip(diff, range(20)):
@@ -220,18 +237,18 @@ class BucketTest(Tester):
 						correct = False
 						break
 
-					if not correct:
-						self.score.adjust(-3, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
+				if not correct:
+					self.score.adjust(-5, reason='failed diff for gcloud hadoop output (part-r-00006) - showing only first 20 diffs:' + diffstr)
 
 			except IOError:
-				sys.stderr.write('GRADER ERROR: make sure bucket6 file is in grading directory!\n')
-			except ValueError:
-				self.score.adjust(-0.5, reason='output format may be wrong (consider submitting regrade request!)')
+				sys.stderr.write('GRADER ERROR: make sure bucket6 and bucket6_lex files are in grading directory!\n')
+			except ValueError as e:
+				self.score.adjust(-0.5, reason='output format may be wrong (consider submitting regrade request!)' + '\n ' + str(e))
 
 		except subprocess.CalledProcessError as e:
 			self.score.adjust(-5, reason='issue with curl command, did you make your bucket public? (consider regrade request!):\n' + cmd + '\n ' + str(e.output))
 		except:
-			self.score.adjust(0, reason='unkown failure')
+			self.score.adjust(0, reason='unknown failure')
 
 		return {
 			'score': self.score.score,
@@ -259,7 +276,7 @@ def main():
 		'tests': [test.run() for test in tests]
 	}
 
-	print(res)
+	print(json.dumps(res, indent=4, separators=(',', ': ')))
 
 	with open('out.json', 'w') as jout:
 		jout.write(json.dumps(res))
